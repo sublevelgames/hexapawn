@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HEXAPAWN Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        
+        #gameCanvas {
+            border: 2px solid #333;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin: 20px 0;
+            cursor: pointer;
+        }
+        
+        #info {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        #message {
+            font-size: 18px;
+            margin: 10px 0;
+            min-height: 30px;
+        }
+        
+        #score {
+            font-size: 16px;
+            color: #666;
+        }
+        
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        #debugInfo {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #e0e0e0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-width: 400px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>HEXAPAWN</h1>
+    
+    <div id="info">
+        <div id="message">Click on your pawn (O) to move</div>
+        <div id="score">Computer: 0 | You: 0 | Total: 0</div>
+    </div>
+    
+    <canvas id="gameCanvas"></canvas>
+    
+    <div>
+        <button onclick="newGame()">New Game</button>
+        <button onclick="resetLearning()">Reset Learning</button>
+    </div>
+    
+    <div id="debugInfo"></div>
+    
+    <!-- 체스 이미지 -->
+    <img id="chess_img" src="chess_icon.png" class="hidden" onload="onImageLoad()" onerror="onImageError()">
+    
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const chessImg = document.getElementById('chess_img');
+        
+        // Board settings (from visualize.html)
+        const BOARD_SIZE = 3;
+        const CELL_SIZE = 80;
+        const DARK_COLOR = '#D28C45';
+        const LIGHT_COLOR = '#FFCF9F';
+        
+        // Canvas size
+        canvas.width = BOARD_SIZE * CELL_SIZE;
+        canvas.height = BOARD_SIZE * CELL_SIZE;
+        
+        // Chess piece image settings
+        const PIECE_SIZE = 45;
+        const WHITE_PAWN_X = 225;
+        const WHITE_PAWN_Y = 0;
+        const BLACK_PAWN_X = 225;
+        const BLACK_PAWN_Y = 45;
+        
+        let imageLoaded = false;
+        
+        // Game state
+        let board = [];
+        let selectedCell = null;
+        let possibleMoves = [];
+        let computerWins = 0;
+        let playerWins = 0;
+        let currentStateIndex = null;
+        let currentMoveIndex = null;
+        
+        // 19 predefined board states
+        const boardStates = [
+            [-1,-1,-1,1,0,0,0,1,1],
+            [-1,-1,-1,0,1,0,1,0,1],
+            [-1,0,-1,-1,1,0,0,0,1],
+            [0,-1,-1,1,-1,0,0,0,1],
+            [-1,0,-1,1,1,0,0,1,0],
+            [-1,-1,0,1,0,1,0,0,1],
+            [0,-1,-1,0,-1,1,1,0,0],
+            [0,-1,-1,-1,1,1,1,0,0],
+            [-1,0,-1,-1,0,1,0,1,0],
+            [0,-1,-1,0,1,0,0,0,1],
+            [0,-1,-1,0,1,0,1,0,0],
+            [-1,0,-1,1,0,0,0,0,1],
+            [0,0,-1,-1,-1,1,0,0,0],
+            [-1,0,0,1,1,1,0,0,0],
+            [0,-1,0,-1,1,1,0,0,0],
+            [-1,0,0,-1,-1,1,0,0,0],
+            [0,0,-1,-1,1,0,0,0,0],
+            [0,-1,0,1,-1,0,0,0,0],
+            [-1,0,0,-1,1,0,0,0,0]
+        ];
+        
+        // Possible moves for each state
+        const stateMoves = [
+            [24,25,36,0],
+            [14,15,36,0],
+            [15,35,36,47],
+            [36,58,59,0],
+            [15,35,36,0],
+            [24,25,26,0],
+            [26,57,58,0],
+            [26,35,0,0],
+            [47,48,0,0],
+            [35,36,0,0],
+            [35,36,0,0],
+            [36,0,0,0],
+            [47,58,0,0],
+            [15,0,0,0],
+            [26,47,0,0],
+            [47,58,0,0],
+            [35,36,47,0],
+            [28,58,0,0],
+            [15,47,0,0]
+        ];
+        
+        // Initialize moves array
+        let moves = stateMoves.map(row => [...row]);
+        
+        // Image loading
+        function onImageLoad() {
+            imageLoaded = true;
+            renderBoard();
+        }
+        
+        function onImageError() {
+            console.log('Chess image not found, using text symbols');
+            renderBoard();
+        }
+        
+        // Position reversal function
+        function fnr(pos) {
+            const reversalMap = {1:3, 2:2, 3:1, 4:6, 5:5, 6:4, 7:9, 8:8, 9:7};
+            return reversalMap[pos];
+        }
+        
+        // Initialize game
+        function initGame() {
+            board = [0,0,0,0,0,0,0,0,0];
+            board[0] = board[1] = board[2] = -1; // Computer
+            board[6] = board[7] = board[8] = 1;  // Player
+            selectedCell = null;
+            possibleMoves = [];
+            currentStateIndex = null;
+            currentMoveIndex = null;
+            renderBoard();
+            updateMessage("Your move - click on your pawn (O)");
+        }
+        
+        // Draw chessboard pattern
+        function drawChessboard() {
+            for (let row = 0; row < BOARD_SIZE; row++) {
+                for (let col = 0; col < BOARD_SIZE; col++) {
+                    const x = col * CELL_SIZE;
+                    const y = row * CELL_SIZE;
+                    
+                    if ((row + col) % 2 === 0) {
+                        ctx.fillStyle = DARK_COLOR;
+                    } else {
+                        ctx.fillStyle = LIGHT_COLOR;
+                    }
+                    
+                    ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+                }
+            }
+        }
+        
+        // Draw a pawn
+        function drawPawn(col, row, type) {
+            const x = col * CELL_SIZE + CELL_SIZE / 2;
+            const y = row * CELL_SIZE + CELL_SIZE / 2;
+            
+            if (imageLoaded) {
+                const sourceX = type === 1 ? WHITE_PAWN_X : BLACK_PAWN_X;
+                const sourceY = type === 1 ? WHITE_PAWN_Y : BLACK_PAWN_Y;
+                const scaledPieceSize = CELL_SIZE * 0.7;
+                
+                ctx.drawImage(
+                    chessImg,
+                    sourceX, sourceY, PIECE_SIZE, PIECE_SIZE,
+                    x - scaledPieceSize / 2, y - scaledPieceSize / 2, 
+                    scaledPieceSize, scaledPieceSize
+                );
+            } else {
+                ctx.save();
+                ctx.fillStyle = type === 1 ? 'white' : 'black';
+                ctx.strokeStyle = type === 1 ? 'black' : 'white';
+                ctx.lineWidth = 2;
+                ctx.font = 'bold 40px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                const pawnSymbol = type === 1 ? 'O' : 'X';
+                ctx.fillText(pawnSymbol, x, y);
+                ctx.strokeText(pawnSymbol, x, y);
+                ctx.restore();
+            }
+        }
+        
+        // Draw cell numbers
+        function drawCellNumbers() {
+            ctx.save();
+            ctx.fillStyle = '#666';
+            ctx.font = '12px Arial';
+            
+            for (let i = 0; i < 9; i++) {
+                const row = Math.floor(i / 3);
+                const col = i % 3;
+                const x = col * CELL_SIZE + 5;
+                const y = row * CELL_SIZE + 15;
+                ctx.fillText((i + 1).toString(), x, y);
+            }
+            ctx.restore();
+        }
+        
+        // Highlight cells
+        function highlightCell(index, color) {
+            const row = Math.floor(index / 3);
+            const col = index % 3;
+            const x = col * CELL_SIZE;
+            const y = row * CELL_SIZE;
+            
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 4;
+            ctx.strokeRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+        }
+        
+        // Render the board
+        function renderBoard() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw chessboard
+            drawChessboard();
+            
+            // Draw cell numbers
+            drawCellNumbers();
+            
+            // Draw pieces
+            for (let i = 0; i < 9; i++) {
+                const row = Math.floor(i / 3);
+                const col = i % 3;
+                if (board[i] !== 0) {
+                    drawPawn(col, row, board[i]);
+                }
+            }
+            
+            // Highlight selected cell
+            if (selectedCell !== null) {
+                highlightCell(selectedCell, '#4CAF50');
+            }
+            
+            // Highlight possible moves
+            possibleMoves.forEach(move => {
+                highlightCell(move, '#2196F3');
+            });
+            
+            updateScore();
+        }
+        
+        // Handle canvas click
+        canvas.addEventListener('click', function(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            const col = Math.floor(x / CELL_SIZE);
+            const row = Math.floor(y / CELL_SIZE);
+            const index = row * 3 + col;
+            
+            cellClick(index);
+        });
+        
+        // Handle cell click
+        function cellClick(index) {
+            if (selectedCell === null) {
+                // Select piece
+                if (board[index] === 1) {
+                    selectedCell = index;
+                    possibleMoves = getPossibleMoves(index);
+                    renderBoard();
+                }
+            } else {
+                // Try to move
+                if (possibleMoves.includes(index)) {
+                    makePlayerMove(selectedCell, index);
+                    selectedCell = null;
+                    possibleMoves = [];
+                    
+                    // Check win conditions
+                    if (checkPlayerWin()) {
+                        endGame(true);
+                    } else {
+                        setTimeout(computerMove, 500);
+                    }
+                } else {
+                    // Deselect
+                    selectedCell = null;
+                    possibleMoves = [];
+                    renderBoard();
+                }
+            }
+        }
+        
+        // Get possible moves for a player piece
+        function getPossibleMoves(index) {
+            const moves = [];
+            const pos = index + 1; // Convert to 1-based
+            
+            // Forward move
+            if (pos > 3 && board[pos - 4] === 0) {
+                moves.push(pos - 4);
+            }
+            
+            // Diagonal captures
+            if (pos > 3) {
+                // Left diagonal
+                if (pos % 3 !== 1 && pos > 4 && board[pos - 5] === -1) {
+                    moves.push(pos - 5);
+                }
+                // Right diagonal
+                if (pos % 3 !== 0 && pos > 2 && board[pos - 3] === -1) {
+                    moves.push(pos - 3);
+                }
+            }
+            
+            return moves;
+        }
+        
+        // Make player move
+        function makePlayerMove(from, to) {
+            board[from] = 0;
+            board[to] = 1;
+            renderBoard();
+        }
+        
+        // Computer move
+        function computerMove() {
+            // Find matching state
+            let stateMatch = findMatchingState();
+            
+            if (!stateMatch) {
+                updateMessage("Illegal board pattern!");
+                return;
+            }
+            
+            const {index, reversed} = stateMatch;
+            currentStateIndex = index;
+            
+            // Get available moves
+            const availableMoves = [];
+            for (let i = 0; i < 4; i++) {
+                if (moves[index][i] !== 0) {
+                    availableMoves.push({moveIndex: i, move: moves[index][i]});
+                }
+            }
+            
+            if (availableMoves.length === 0) {
+                updateMessage("I resign.");
+                endGame(true);
+                return;
+            }
+            
+            // Random selection
+            const selected = availableMoves[Math.floor(Math.random() * availableMoves.length)];
+            currentMoveIndex = selected.moveIndex;
+            
+            // Execute move
+            const move = selected.move;
+            const from = Math.floor(move / 10) - 1;
+            const to = (move % 10) - 1;
+            
+            if (reversed) {
+                board[fnr(from + 1) - 1] = 0;
+                board[fnr(to + 1) - 1] = -1;
+                updateMessage(`I move from ${fnr(from + 1)} to ${fnr(to + 1)}`);
+            } else {
+                board[from] = 0;
+                board[to] = -1;
+                updateMessage(`I move from ${from + 1} to ${to + 1}`);
+            }
+            
+            renderBoard();
+            
+            // Check win conditions
+            if (checkComputerWin()) {
+                endGame(false);
+            } else if (!canPlayerMove()) {
+                updateMessage("You can't move, so I win.");
+                endGame(false);
+            } else {
+                updateMessage("Your move");
+            }
+        }
+        
+        // Find matching state
+        function findMatchingState() {
+            // Check normal orientation
+            for (let i = 0; i < boardStates.length; i++) {
+                if (boardsEqual(board, boardStates[i])) {
+                    return {index: i, reversed: false};
+                }
+            }
+            
+            // Check reversed orientation
+            const reversedBoard = reverseBoard(board);
+            for (let i = 0; i < boardStates.length; i++) {
+                if (boardsEqual(reversedBoard, boardStates[i])) {
+                    return {index: i, reversed: true};
+                }
+            }
+            
+            return null;
+        }
+        
+        // Check if two boards are equal
+        function boardsEqual(b1, b2) {
+            for (let i = 0; i < 9; i++) {
+                if (b1[i] !== b2[i]) return false;
+            }
+            return true;
+        }
+        
+        // Reverse board horizontally
+        function reverseBoard(b) {
+            const reversed = [];
+            for (let row = 0; row < 3; row++) {
+                for (let col = 0; col < 3; col++) {
+                    reversed[row * 3 + col] = b[row * 3 + (2 - col)];
+                }
+            }
+            return reversed;
+        }
+        
+        // Check win conditions
+        function checkPlayerWin() {
+            // Player reached top row
+            if (board[0] === 1 || board[1] === 1 || board[2] === 1) return true;
+            
+            // No computer pieces
+            if (!board.includes(-1)) return true;
+            
+            // Computer can't move
+            return !canComputerMove();
+        }
+        
+        function checkComputerWin() {
+            // Computer reached bottom row
+            if (board[6] === -1 || board[7] === -1 || board[8] === -1) return true;
+            
+            // No player pieces
+            if (!board.includes(1)) return true;
+            
+            return false;
+        }
+        
+        // Check if player can move
+        function canPlayerMove() {
+            for (let i = 0; i < 9; i++) {
+                if (board[i] === 1) {
+                    const moves = getPossibleMoves(i);
+                    if (moves.length > 0) return true;
+                }
+            }
+            return false;
+        }
+        
+        // Check if computer can move
+        function canComputerMove() {
+            for (let i = 0; i < 9; i++) {
+                if (board[i] === -1) {
+                    // Check forward
+                    if (i <= 5 && board[i + 3] === 0) return true;
+                    
+                    // Check diagonal captures
+                    if (i <= 5) {
+                        if (i % 3 !== 0 && i <= 4 && board[i + 4] === 1) return true;
+                        if (i % 3 !== 2 && i <= 6 && board[i + 2] === 1) return true;
+                    }
+                }
+            }
+            return false;
+        }
+        
+        // End game
+        function endGame(playerWon) {
+            if (playerWon) {
+                playerWins++;
+                updateMessage("You win!");
+                
+                // Learn from loss
+                if (currentStateIndex !== null && currentMoveIndex !== null) {
+                    moves[currentStateIndex][currentMoveIndex] = 0;
+                    updateDebugInfo();
+                }
+            } else {
+                computerWins++;
+                updateMessage("I win!");
+            }
+            
+            updateScore();
+            
+            setTimeout(() => {
+                if (confirm("Play again?")) {
+                    newGame();
+                }
+            }, 1000);
+        }
+        
+        // Update messages
+        function updateMessage(msg) {
+            document.getElementById('message').textContent = msg;
+        }
+        
+        function updateScore() {
+            document.getElementById('score').textContent = 
+                `Computer: ${computerWins} | You: ${playerWins} | Total: ${computerWins + playerWins}`;
+        }
+        
+        // Update debug info
+        // 수정 (innerHTML 사용하고 <br> 추가)
+        function updateDebugInfo() {
+            let debugText = "Learning State:<br>";
+            let learnedMoves = 0;
+            
+            for (let i = 0; i < moves.length; i++) {
+                let originalZeros = 0;
+                let currentZeros = 0;
+                
+                // 원래 0인 개수 세기
+                for (let j = 0; j < 4; j++) {
+                    if (stateMoves[i][j] === 0) originalZeros++;
+                    if (moves[i][j] === 0) currentZeros++;
+                }
+                
+                // 실제로 학습으로 인해 0이 된 개수
+                const newlyLearned = currentZeros - originalZeros;
+                
+                if (newlyLearned > 0) {
+                    debugText += `State ${i + 1}: ${newlyLearned}/4 moves eliminated<br>`;
+                    learnedMoves += newlyLearned;
+                }
+            }
+            
+            debugText += `<br>Total learned (bad) moves: ${learnedMoves}`;
+            document.getElementById('debugInfo').innerHTML = debugText;
+        }
+        
+        // New game
+        function newGame() {
+            initGame();
+            updateDebugInfo();
+        }
+        
+        // Reset learning
+        function resetLearning() {
+            moves = stateMoves.map(row => [...row]);
+            computerWins = 0;
+            playerWins = 0;
+            updateScore();
+            updateDebugInfo();
+            newGame();
+        }
+        
+        // Check if image is already loaded
+        if (chessImg.complete && chessImg.naturalHeight !== 0) {
+            onImageLoad();
+        }
+        
+        // Start the game
+        initGame();
+        updateDebugInfo();
+    </script>
+</body>
+</html>
